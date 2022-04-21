@@ -21,8 +21,26 @@ config_setting(
 )
 
 config_setting(
-    name = "compiler_msvc",
+    name = "compiler_msvc_actual",
     flag_values = {"@bazel_tools//tools/cpp:compiler": "msvc"},
+)
+
+# The above is insufficient for Bazel on Windows, which does not seem to
+# detect/set a compiler flag. This workaround prevents compile errors due to
+# passing clang-only warning flags to MSVC.
+config_setting(
+    name = "compiler_msvc_cpu",
+    values = {
+        "cpu": "x64_windows",
+    },
+)
+
+selects.config_setting_group(
+    name = "compiler_msvc",
+    match_any = [
+        ":compiler_msvc_actual",
+        ":compiler_msvc_cpu",
+    ],
 )
 
 config_setting(
@@ -286,6 +304,16 @@ HWY_TESTS = [
     ("hwy/tests/", "test_util_test"),
 ]
 
+HWY_TEST_COPTS = select({
+    ":compiler_msvc": [],
+    "//conditions:default": [
+        # gTest triggers this warning (which is enabled by the
+        # extra-semi in COPTS), so we need to disable it here,
+        # but it's still enabled for :hwy.
+        "-Wno-c++98-compat-extra-semi",
+    ],
+})
+
 HWY_TEST_DEPS = [
     ":algo",
     ":dot",
@@ -308,12 +336,7 @@ HWY_TEST_DEPS = [
             srcs = [
                 subdir + test + ".cc",
             ],
-            copts = COPTS + [
-                # gTest triggers this warning (which is enabled by the
-                # extra-semi in COPTS), so we need to disable it here,
-                # but it's still enabled for :hwy.
-                "-Wno-c++98-compat-extra-semi",
-            ],
+            copts = COPTS + HWY_TEST_COPTS,
             features = select({
                 "@platforms//cpu:riscv64": ["fully_static_link"],
                 "//conditions:default": [],
